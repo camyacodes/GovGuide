@@ -1,11 +1,31 @@
 "use client";
 import { uploadtoS3 } from "@/lib/s3";
+import { useMutation } from "@tanstack/react-query";
 import { log } from "console";
-import { Inbox } from "lucide-react";
+import { Inbox, Loader2 } from "lucide-react";
 import React from "react";
 import { useDropzone } from "react-dropzone";
+import axios from "axios";
+import toast from "react-hot-toast";
 
 const FileUpload = () => {
+  const [uploading, setUploading] = React.useState(false);
+  const { mutate, isPending } = useMutation({
+    mutationFn: async ({
+      file_key,
+      file_name,
+    }: {
+      file_key: string;
+      file_name: string;
+    }) => {
+      const response = await axios.post("/api/create-chat", {
+        file_key,
+        file_name,
+      });
+      return response.data;
+    },
+  });
+
   const { getRootProps, getInputProps } = useDropzone({
     accept: { "application/pdf": [".pdf"] },
     maxFiles: 1,
@@ -13,15 +33,29 @@ const FileUpload = () => {
       console.log(acceptedFiles);
       const file = acceptedFiles[0];
       if (file.size > 10 * 1024 * 1024) {
-        alert("file size exceeds limit");
+        toast.error("file size exceeds limit");
         return;
       }
 
       try {
+        setUploading(true);
         const data = await uploadtoS3(file);
-        console.log("data", data);
+        if (!data?.file_key || !data.file_name) {
+          toast.error("something went wrong");
+          return;
+        }
+        mutate(data, {
+          onSuccess: (data) => {
+            toast.success(data.message);
+          },
+          onError: (err) => {
+            toast.error("Error creating chat");
+          },
+        });
       } catch (error) {
         console.log(error);
+      } finally {
+        setUploading(false);
       }
     },
   });
@@ -35,11 +69,20 @@ const FileUpload = () => {
         })}
       >
         <input {...getInputProps()} />
-        <>
-          <Inbox className="w-10 h-10 text-slate-400"></Inbox>
-          <p className="text-slate-400">Upload or Drop File</p>
-          <p className="text-xs text-slate-400">*Must be PDF and up to 10MB</p>
-        </>
+        {uploading || isPending ? (
+          <>
+            <Loader2 className="h-10 w-10 text-slate-800 animate-spin"></Loader2>
+            <p className="mt-2 text-sm text-slate-800">One moment...</p>
+          </>
+        ) : (
+          <>
+            <Inbox className="w-10 h-10 text-slate-400"></Inbox>
+            <p className="text-slate-400">Upload or Drop File</p>
+            <p className="text-xs text-slate-400">
+              *Must be PDF and up to 10MB
+            </p>
+          </>
+        )}
       </div>
     </div>
   );
